@@ -116,6 +116,9 @@ type apiFunc func(http.ResponseWriter, *http.Request) error
 type ApiError struct {
 	Error string `json:"error"`
 }
+type ApiSuccess struct {
+	Success string `json:"success"`
+}
 
 func WriteJson(w http.ResponseWriter, status int, v any) error {
 
@@ -158,7 +161,7 @@ func (s *APIServer) handleGetAccountPW(w http.ResponseWriter, r *http.Request) e
 		return nil
 	}
 	fmt.Println(exists, "可以创建账号")
-	return WriteJson(w, http.StatusOK, exists)
+	return WriteJson(w, http.StatusOK, ApiSuccess{Success: "accountName not found"})
 	// idStr := mux.Vars(r)["id"]
 	// id, _ := strconv.Atoi(idStr)
 	// fmt.Println(id)

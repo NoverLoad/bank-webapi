@@ -165,7 +165,7 @@ func (s *PostgresStore) getAccountPW(id int) ([]byte, error) {
 	return []byte(password), nil
 }
 
-func (s *PostgresStore) compareHashAndPW(id int, userPassword []byte) error {
+func (s *PostgresStore) CompareHashAndPW(id int, userPassword []byte) error {
 
 	hashAndPw, err := s.getAccountPW(id)
 	if err != nil {
