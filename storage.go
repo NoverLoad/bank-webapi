@@ -21,6 +21,7 @@ type Storage interface {
 	UpdateAccount(*Account) error
 	GetAccounts() ([]*Account, error)
 	GetAccountID(int) (*Account, error)
+	GetAccountPhone(int) (string, error)
 }
 
 type PostgresStore struct {
@@ -47,7 +48,7 @@ func (s *PostgresStore) Init() error {
 
 func (s *PostgresStore) createAccountTable() error {
 	query := `CREATE TABLE  if not exists users(
-		id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		user_id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 		accountname VARCHAR(100),
 		password BYTEA NOT NULL,
 		username VARCHAR(50),
@@ -74,7 +75,11 @@ func (s *PostgresStore) CreateAccount(acc *Account) error {
 	values
 	($1,$2,$3,$4,$5,$6,$7,$8)
 	`
-	password, err := s.bcryptPW(acc.Password)
+	password, err := bcryptPW(acc.Password)
+	if err != nil {
+		return err
+	}
+	phoneNumber, err := EncryptPhoneNumber(acc.PhoneNumber)
 	if err != nil {
 		return err
 	}
@@ -83,7 +88,7 @@ func (s *PostgresStore) CreateAccount(acc *Account) error {
 		password,
 		acc.Username,
 		acc.PermissionID,
-		acc.PhoneNumber,
+		phoneNumber,
 		acc.Status,
 		acc.CreatedAt,
 		acc.UpdatedAt,
@@ -173,7 +178,7 @@ func (s *PostgresStore) compareHashAndPW(id int, userPassword []byte) error {
 
 }
 
-func (s *PostgresStore) bcryptPW(password string) ([]byte, error) {
+func bcryptPW(password string) ([]byte, error) {
 
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -183,7 +188,7 @@ func (s *PostgresStore) bcryptPW(password string) ([]byte, error) {
 }
 
 // 生产环境应该将decryptPhoneKey 存入到环境变量中
-const decryptPhoneKey = "f3125f744df88a6b53bb3c4f18f5debc7db7249abef3115dbed92a5ed5b3a30c"
+const decryptPhoneKey = "f3125f744df88a6b53bb3c4f18f5debc"
 
 func EncryptPhoneNumber(phoneNumber string) (string, error) {
 	key := []byte(decryptPhoneKey)
@@ -236,4 +241,18 @@ func DecryptPhoneNumber(cipherText string) (string, error) {
 	}
 
 	return string(ciphertext[:len(ciphertext)-padding]), nil
+}
+
+func (s *PostgresStore) GetAccountPhone(id int) (string, error) {
+
+	var phone string
+
+	err := s.db.QueryRow("select phone_number from users where user_id = $1", id).Scan(&phone)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("given ID not found")
+		}
+		return "", err
+	}
+	return phone, nil
 }

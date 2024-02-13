@@ -23,8 +23,12 @@ func NewAPIServer(listenAddr string, store Storage) *APIServer {
 }
 
 func (s *APIServer) RUN() {
+
 	r := mux.NewRouter()
-	//r.HandleFunc("/authpassword/{id}", makeHTTPHandleFunc(s.handleGetAccountPW))
+
+	//Testing
+	r.HandleFunc("/authpassword/{id}", makeHTTPHandleFunc(s.handleGetAccountPW))
+
 	r.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
 	r.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleGetAccountByID))
 	log.Println("JSON API server running port ", s.listenAddr)
@@ -139,23 +143,21 @@ func getID(r *http.Request) (int, error) {
 
 }
 
-// func (s *APIServer) handleGetAccountPW(w http.ResponseWriter, r *http.Request) error {
-// 	// idStr := mux.Vars(r)["id"]
-// 	// id, _ := strconv.Atoi(idStr)
-// 	// pw, err := getAccountPW(id)
-// 	// if err != nil {
-// 	// 	return err
-// 	// }
-// 	// return WriteJson(w, http.StatusOK, pw)
+// Testing
+func (s *APIServer) handleGetAccountPW(w http.ResponseWriter, r *http.Request) error {
+	idStr := mux.Vars(r)["id"]
+	id, _ := strconv.Atoi(idStr)
+	fmt.Println(id)
+	pw, err := s.store.GetAccountPhone(id)
+	if err != nil {
+		return err
+	}
+	decryptPhone, err := DecryptPhoneNumber(string(pw))
+	if err != nil {
+		return err
+	}
 
-// 	key := make([]byte, 32)
+	fmt.Println(pw)
+	return WriteJson(w, http.StatusOK, decryptPhone)
 
-// 	// 使用crypto/rand包来填充密钥切片
-// 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-// 		panic(err) // 处理错误，如果无法读取足够的随机数据则终止程序
-// 	}
-
-// 	// 打印生成的密钥（可选，仅用于验证）
-// 	fmt.Printf("Generated Key: %x\n", key)
-// 	return nil
-// }
+}
