@@ -27,7 +27,7 @@ func (s *APIServer) RUN() {
 	r := mux.NewRouter()
 
 	//Testing
-	r.HandleFunc("/authpassword/{id}", makeHTTPHandleFunc(s.handleGetAccountPW))
+	r.HandleFunc("/authpassword/{accountName}", makeHTTPHandleFunc(s.handleGetAccountPW))
 
 	r.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
 	r.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleGetAccountByID))
@@ -145,19 +145,33 @@ func getID(r *http.Request) (int, error) {
 
 // Testing
 func (s *APIServer) handleGetAccountPW(w http.ResponseWriter, r *http.Request) error {
-	idStr := mux.Vars(r)["id"]
-	id, _ := strconv.Atoi(idStr)
-	fmt.Println(id)
-	pw, err := s.store.GetAccountPhone(id)
-	if err != nil {
-		return err
-	}
-	decryptPhone, err := DecryptPhoneNumber(string(pw))
-	if err != nil {
-		return err
-	}
 
-	fmt.Println(pw)
-	return WriteJson(w, http.StatusOK, decryptPhone)
+	resStr := mux.Vars(r)["accountName"]
+
+	exists, err := s.store.CheckAccountNameExists(resStr)
+	if err != nil {
+		return err
+	}
+	if exists {
+
+		fmt.Println(exists, "账号已经存在")
+		return nil
+	}
+	fmt.Println(exists, "可以创建账号")
+	return WriteJson(w, http.StatusOK, exists)
+	// idStr := mux.Vars(r)["id"]
+	// id, _ := strconv.Atoi(idStr)
+	// fmt.Println(id)
+	// pw, err := s.store.GetAccountPhone(id)
+	// if err != nil {
+	// 	return err
+	// }
+	// decryptPhone, err := DecryptPhoneNumber(string(pw))
+	// if err != nil {
+	// 	return err
+	// }
+
+	// fmt.Println(pw)
+	// return WriteJson(w, http.StatusOK, decryptPhone)
 
 }

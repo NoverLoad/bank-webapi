@@ -22,6 +22,7 @@ type Storage interface {
 	GetAccounts() ([]*Account, error)
 	GetAccountID(int) (*Account, error)
 	GetAccountPhone(int) (string, error)
+	CheckAccountNameExists(string) (bool, error)
 }
 
 type PostgresStore struct {
@@ -243,6 +244,7 @@ func DecryptPhoneNumber(cipherText string) (string, error) {
 	return string(ciphertext[:len(ciphertext)-padding]), nil
 }
 
+// Testing
 func (s *PostgresStore) GetAccountPhone(id int) (string, error) {
 
 	var phone string
@@ -255,4 +257,16 @@ func (s *PostgresStore) GetAccountPhone(id int) (string, error) {
 		return "", err
 	}
 	return phone, nil
+}
+
+func (s *PostgresStore) CheckAccountNameExists(accountName string) (bool, error) {
+
+	query := `SELECT EXISTS(SELECT 1 FROM users WHERE accountname = $1)`
+	var exists bool
+	err := s.db.QueryRow(query, accountName).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
 }
