@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 
 	_ "github.com/lib/pq"
@@ -174,4 +180,60 @@ func (s *PostgresStore) bcryptPW(password string) ([]byte, error) {
 		log.Fatal("Failed to hash password: %w", err)
 	}
 	return hashPassword, err
+}
+
+// 生产环境应该将decryptPhoneKey 存入到环境变量中
+const decryptPhoneKey = "f3125f744df88a6b53bb3c4f18f5debc7db7249abef3115dbed92a5ed5b3a30c"
+
+func EncryptPhoneNumber(phoneNumber string) (string, error) {
+	key := []byte(decryptPhoneKey)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	padding := block.BlockSize() - len(phoneNumber)%aes.BlockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	phoneNumber = phoneNumber + string(padtext)
+
+	ciphertext := make([]byte, aes.BlockSize+len(phoneNumber))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", err
+	}
+
+	mode := cipher.NewCBCEncrypter(block, iv)
+	mode.CryptBlocks(ciphertext[aes.BlockSize:], []byte(phoneNumber))
+
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func DecryptPhoneNumber(cipherText string) (string, error) {
+	key := []byte(decryptPhoneKey)
+	ciphertext, err := base64.StdEncoding.DecodeString(cipherText)
+	if err != nil {
+		return "", err
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	if len(ciphertext) < aes.BlockSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+
+	iv := ciphertext[:aes.BlockSize]
+	ciphertext = ciphertext[aes.BlockSize:]
+
+	mode := cipher.NewCBCDecrypter(block, iv)
+	mode.CryptBlocks(ciphertext, ciphertext)
+
+	padding := int(ciphertext[len(ciphertext)-1])
+	if padding < 1 || padding > aes.BlockSize {
+		return "", fmt.Errorf("invalid padding")
+	}
+
+	return string(ciphertext[:len(ciphertext)-padding]), nil
 }

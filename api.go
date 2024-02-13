@@ -140,11 +140,22 @@ func getID(r *http.Request) (int, error) {
 }
 
 // func (s *APIServer) handleGetAccountPW(w http.ResponseWriter, r *http.Request) error {
-// 	idStr := mux.Vars(r)["id"]
-// 	id, _ := strconv.Atoi(idStr)
-// 	pw, err := getAccountPW(id)
-// 	if err != nil {
-// 		return err
+// 	// idStr := mux.Vars(r)["id"]
+// 	// id, _ := strconv.Atoi(idStr)
+// 	// pw, err := getAccountPW(id)
+// 	// if err != nil {
+// 	// 	return err
+// 	// }
+// 	// return WriteJson(w, http.StatusOK, pw)
+
+// 	key := make([]byte, 32)
+
+// 	// 使用crypto/rand包来填充密钥切片
+// 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+// 		panic(err) // 处理错误，如果无法读取足够的随机数据则终止程序
 // 	}
-// 	return WriteJson(w, http.StatusOK, pw)
+
+// 	// 打印生成的密钥（可选，仅用于验证）
+// 	fmt.Printf("Generated Key: %x\n", key)
+// 	return nil
 // }
