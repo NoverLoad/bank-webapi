@@ -82,6 +82,14 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewDecoder(r.Body).Decode(&createAccountRes); err != nil {
 		return err
 	}
+	exists, err := s.store.CheckAccountNameExists(createAccountRes.AccountName)
+	if err != nil {
+		return err
+	}
+	if exists {
+		//417
+		return WriteJson(w, http.StatusExpectationFailed, ApiError{Error: "The account already exists. Please use a different account or reset your password"})
+	}
 	account := NewAccount(
 		createAccountRes.AccountName,
 		createAccountRes.Password,

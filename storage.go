@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
@@ -32,6 +33,7 @@ type PostgresStore struct {
 func NewPostgresStore() (*PostgresStore, error) {
 	connStr := "user=postgres dbname=postgres password=gobank sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
+	defer db.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,51 @@ func (s *PostgresStore) DeleteAccount(id int) error {
 	_, err := s.db.Query("delete from users where user_id = $1", id)
 	return err
 }
-func (s *PostgresStore) UpdateAccount(*Account) error {
+
+func (s *PostgresStore) UpdateAccount(acc *Account) error {
+
+	// 更新密码
+	if acc.Password != "" {
+		password, err := bcryptPW(acc.Password)
+		if err != nil {
+			return err
+		}
+		acc.Password = string(password)
+	}
+
+	// 更新电话号码
+	if acc.PhoneNumber != "" {
+		encryptedPhone, err := EncryptPhoneNumber(acc.PhoneNumber)
+		if err != nil {
+			return err
+		}
+		acc.PhoneNumber = encryptedPhone // 更新Account结构体的电话号码字段，以便后续可能的使用
+	}
+
+	query := `UPDATE users  
+              SET accountname = $1,  
+                  password = $2,  
+                  username = $3,  
+                  permission_id = $4,  
+                  phone_number = $5,  
+                  status = $6,  
+                  updated_at = $7  
+              WHERE user_id = $8`
+
+	_, err := s.db.Exec(query,
+		acc.AccountName,
+		acc.Password,
+		acc.Username,
+		acc.PermissionID,
+		acc.PhoneNumber,
+		acc.Status,
+		time.Now(), // 假设你想在更新时设置updated_at字段为当前时间
+		acc.ID,
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 func (s *PostgresStore) GetAccountID(id int) (*Account, error) {
@@ -148,7 +194,15 @@ func scanIntoAccount(rows *sql.Rows) (*Account, error) {
 		&account.CreatedAt,
 		&account.UpdatedAt,
 	)
-	return account, err
+	if err != nil {
+		return nil, err
+	}
+	decryptPhone, err := DecryptPhoneNumber(account.PhoneNumber)
+	if err != nil {
+		return nil, err
+	}
+	account.PhoneNumber = decryptPhone
+	return account, nil
 }
 
 func (s *PostgresStore) getAccountPW(id int) ([]byte, error) {
