@@ -19,11 +19,12 @@ import (
 type Storage interface {
 	CreateAccount(*Account) error
 	DeleteAccount(int) error
-	UpdateAccount(*Account) error
+	UpdateAccount(int,*Account) error
 	GetAccounts() ([]*Account, error)
 	GetAccountID(int) (*Account, error)
 	GetAccountPhone(int) (string, error)
 	CheckAccountNameExists(string) (bool, error)
+	CompareHashAndPW(int, []byte) error
 }
 
 type PostgresStore struct {
@@ -33,7 +34,7 @@ type PostgresStore struct {
 func NewPostgresStore() (*PostgresStore, error) {
 	connStr := "user=postgres dbname=postgres password=gobank sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
-	defer db.Close()
+	//defer db.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +109,8 @@ func (s *PostgresStore) DeleteAccount(id int) error {
 	return err
 }
 
-func (s *PostgresStore) UpdateAccount(acc *Account) error {
+func (s *PostgresStore) UpdateAccount(id int,acc *Account) error {
 
-	// 更新密码
 	if acc.Password != "" {
 		password, err := bcryptPW(acc.Password)
 		if err != nil {
@@ -119,13 +119,12 @@ func (s *PostgresStore) UpdateAccount(acc *Account) error {
 		acc.Password = string(password)
 	}
 
-	// 更新电话号码
 	if acc.PhoneNumber != "" {
 		encryptedPhone, err := EncryptPhoneNumber(acc.PhoneNumber)
 		if err != nil {
 			return err
 		}
-		acc.PhoneNumber = encryptedPhone // 更新Account结构体的电话号码字段，以便后续可能的使用
+		acc.PhoneNumber = encryptedPhone
 	}
 
 	query := `UPDATE users  
@@ -145,9 +144,10 @@ func (s *PostgresStore) UpdateAccount(acc *Account) error {
 		acc.PermissionID,
 		acc.PhoneNumber,
 		acc.Status,
-		time.Now(), // 假设你想在更新时设置updated_at字段为当前时间
-		acc.ID,
+		time.Now(),
+		id,
 	)
+	fmt.Println(id)
 	if err != nil {
 		return err
 	}

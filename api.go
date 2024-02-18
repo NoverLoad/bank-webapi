@@ -73,8 +73,40 @@ func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request)
 	if r.Method == "DELETE" {
 		return s.handleDeleteAccount(w, r)
 	}
+	if r.Method == "PATCH" {
+		return s.handleUpdateAccount(w, r)
+	}
 
 	return fmt.Errorf("method not allowed %s", r.Method)
+}
+
+func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) error {
+
+	createAccountRes := new(Account)
+	if err := json.NewDecoder(r.Body).Decode(&createAccountRes); err != nil {
+		return err
+	}
+	id, err := getID(r)
+	if err != nil {
+		return err
+	}
+	err = s.store.CompareHashAndPW(id, []byte(createAccountRes.Password))
+	if err != nil {
+		return err
+	}
+
+	account := NewAccount(
+		createAccountRes.AccountName,
+		createAccountRes.Password,
+		createAccountRes.Username,
+		createAccountRes.PermissionID,
+		createAccountRes.PhoneNumber,
+		createAccountRes.Status)
+	if err := s.store.UpdateAccount(id, account); err != nil {
+		return err
+	}
+
+	return WriteJson(w, http.StatusOK, &account)
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
