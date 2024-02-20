@@ -19,12 +19,13 @@ import (
 type Storage interface {
 	CreateAccount(*Account) error
 	DeleteAccount(int) error
-	UpdateAccount(int,*Account) error
+	UpdateAccount(int, *Account) error
 	GetAccounts() ([]*Account, error)
 	GetAccountID(int) (*Account, error)
 	GetAccountPhone(int) (string, error)
 	CheckAccountNameExists(string) (bool, error)
 	CompareHashAndPW(int, []byte) error
+	ChangePassword(int, string) error
 }
 
 type PostgresStore struct {
@@ -32,7 +33,7 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore() (*PostgresStore, error) {
-	connStr := "user=postgres dbname=postgres password=gobank sslmode=disable"
+	connStr := "user=postgres dbname=antenna password=gobank sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	//defer db.Close()
 	if err != nil {
@@ -58,7 +59,8 @@ func (s *PostgresStore) createAccountTable() error {
 		username VARCHAR(50),
 		permission_id INT,
 		phone_number VARCHAR(100),
-		status VARCHAR(10), 
+		status VARCHAR(10),
+		groupid INT,
 		created_at TIMESTAMP,
 		updated_at TIMESTAMP
 	  );`
@@ -74,10 +76,11 @@ func (s *PostgresStore) CreateAccount(acc *Account) error {
 		permission_id,
 		phone_number,
 		status,
+		groupid,
 		created_at,
 		updated_at)
 	values
-	($1,$2,$3,$4,$5,$6,$7,$8)
+	($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`
 	password, err := bcryptPW(acc.Password)
 	if err != nil {
@@ -94,6 +97,7 @@ func (s *PostgresStore) CreateAccount(acc *Account) error {
 		acc.PermissionID,
 		phoneNumber,
 		acc.Status,
+		acc.GroupID,
 		acc.CreatedAt,
 		acc.UpdatedAt,
 	)
@@ -109,7 +113,7 @@ func (s *PostgresStore) DeleteAccount(id int) error {
 	return err
 }
 
-func (s *PostgresStore) UpdateAccount(id int,acc *Account) error {
+func (s *PostgresStore) UpdateAccount(id int, acc *Account) error {
 
 	if acc.Password != "" {
 		password, err := bcryptPW(acc.Password)
@@ -133,9 +137,10 @@ func (s *PostgresStore) UpdateAccount(id int,acc *Account) error {
                   username = $3,  
                   permission_id = $4,  
                   phone_number = $5,  
-                  status = $6,  
-                  updated_at = $7  
-              WHERE user_id = $8`
+                  status = $6,
+				  groupid =$7  
+                  updated_at = $8 
+              WHERE user_id = $9`
 
 	_, err := s.db.Exec(query,
 		acc.AccountName,
@@ -144,6 +149,7 @@ func (s *PostgresStore) UpdateAccount(id int,acc *Account) error {
 		acc.PermissionID,
 		acc.PhoneNumber,
 		acc.Status,
+		acc.GroupID,
 		time.Now(),
 		id,
 	)
@@ -191,6 +197,7 @@ func scanIntoAccount(rows *sql.Rows) (*Account, error) {
 		&account.PermissionID,
 		&account.PhoneNumber,
 		&account.Status,
+		&account.GroupID,
 		&account.CreatedAt,
 		&account.UpdatedAt,
 	)
@@ -323,4 +330,85 @@ func (s *PostgresStore) CheckAccountNameExists(accountName string) (bool, error)
 	}
 
 	return exists, nil
+}
+
+func (s *PostgresStore) ChangePassword(id int, newPassword string) error {
+	password, err := bcryptPW(newPassword)
+	if err != nil {
+		return err
+	}
+	query := "UPDATE users SET password = $1 WHERE user_id = $2"
+	_, err = s.db.Exec(query, password, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) SelectAccountGroup(AccountName, Status string, id, groupid int) ([]AccountGroup, error) {
+
+	permid, err := s.GetAccountPermissionID(id)
+	if err != nil {
+		return nil, err
+	}
+	//超级管理员
+	if permid == 0 {
+		query := `SELECT users.*, groups.* FROM users JOIN "group" ON users.groupid = "group".id`
+	}
+	//管理员
+	if permid == 1 {
+		query := `SELECT users.*, groups.*  
+	FROM users  
+	JOIN "group" ON users.groupid = "group".id`
+	}
+	//普通用户
+	if permid == 2 {
+		query := `SELECT users.*, groups.*  
+		FROM users  
+		JOIN "group" ON users.groupid = "group".id`
+	}
+
+	que := query
+
+	rows, err := s.db.Query(que)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var AccountGroups []AccountGroup
+	for rows.Next() {
+		var ug AccountGroup
+		err := rows.Scan(&ug.Account.ID,
+			&ug.Account.Username,
+			&ug.Account.PhoneNumber,
+			&ug.Account.Status,
+			&ug.Account.AccountName,
+			&ug.Account.PermissionID,
+			&ug.Group.ID,
+			&ug.Group.Name)
+		if err != nil {
+			return nil, err
+		}
+		AccountGroups = append(AccountGroups, ug)
+	}
+	if err := rows.Err(); err != nil {
+
+		return nil, err
+	}
+	return AccountGroups, nil
+}
+
+func (s *PostgresStore) GetAccountPermissionID(id int) (int, error) {
+
+	var permissionID int
+
+	err := s.db.QueryRow("select permission_id from users where user_id = $1", id).Scan(&permissionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return id, nil
+		}
+		return id, err
+	}
+	return permissionID, nil
 }

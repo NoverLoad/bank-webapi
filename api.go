@@ -76,8 +76,29 @@ func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request)
 	if r.Method == "PATCH" {
 		return s.handleUpdateAccount(w, r)
 	}
+	if r.Method == "PUT" {
+		return s.handleUpdateAccountPW(w, r)
+	}
 
 	return fmt.Errorf("method not allowed %s", r.Method)
+}
+
+func (s *APIServer) handleUpdateAccountPW(w http.ResponseWriter, r *http.Request) error {
+	id, err := getID(r)
+	if err != nil {
+		return err
+	}
+	res := new(AccountPW)
+	if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+		return nil
+	}
+
+	account := NewAccountPW(res.Password)
+	if err = s.store.ChangePassword(id, res.Password); err != nil {
+		return WriteJson(w, http.StatusForbidden, account)
+	}
+	return WriteJson(w, http.StatusOK, ApiSuccess{Success: "password change"})
+
 }
 
 func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) error {
@@ -101,7 +122,8 @@ func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) 
 		createAccountRes.Username,
 		createAccountRes.PermissionID,
 		createAccountRes.PhoneNumber,
-		createAccountRes.Status)
+		createAccountRes.Status,
+		createAccountRes.GroupID)
 	if err := s.store.UpdateAccount(id, account); err != nil {
 		return err
 	}
@@ -128,7 +150,8 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		createAccountRes.Username,
 		createAccountRes.PermissionID,
 		createAccountRes.PhoneNumber,
-		createAccountRes.Status)
+		createAccountRes.Status,
+		createAccountRes.GroupID)
 	if err := s.store.CreateAccount(account); err != nil {
 		return err
 	}
