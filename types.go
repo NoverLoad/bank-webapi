@@ -19,31 +19,31 @@ func NewAccountPW(Password string) *AccountPW {
 type Account struct {
 	ID           int       `json:"id"`
 	AccountName  string    `json:"accountName"`
-	Password     string    `json:"password"`
+	Password     string    `json:"-"`
 	Username     string    `json:"username"`
 	PermissionID int       `json:"permissionID"`
 	PhoneNumber  string    `json:"phoneNumber"`
 	Status       string    `json:"status"`
 	GroupID      int       `json:"groupid"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	CreatedAt    time.Time `json:"-"`
+	UpdatedAt    time.Time `json:"-"`
 }
 
 type Group struct {
 	ID        int        `json:"id" gorm:"primaryKey;autoIncrement"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at"`
+	CreatedAt time.Time  `json:"-"`
+	UpdatedAt time.Time  `json:"-"`
+	DeletedAt *time.Time `json:"-"`
 	Name      string     `json:"name"`
-	OrgID     int        `json:"org_id"`
+	OrgID     int        `json:"-"`
 	ParentID  int        `json:"parent_id"`
-	UserIDs   []string   `json:"user_ids" gorm:"type:text[]"`
+	UserIDs   []string   `json:"-" gorm:"type:text[]"`
 }
 
 type AccountGroup struct {
 	Account     Account
 	Group       Group
-	UserIDsJson []byte `json:"users_json"`
+	UserIDsJson []byte `json:"-"`
 }
 
 // GroupID int
@@ -75,12 +75,7 @@ func NewAccountGroup(AccountName, Password, Username string, PermissionID int, P
 		UpdatedAt:    time.Now(),
 	}
 
-	group := Group{
-		Name:     "A公司",
-		ParentID: 1,
-	}
 	return &AccountGroup{
 		Account: account,
-		Group:   group,
 	}
 }

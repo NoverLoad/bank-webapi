@@ -22,13 +22,14 @@ import (
 type Storage interface {
 	CreateAccount(*AccountGroup) error
 	DeleteAccount(int) error
-	UpdateAccount(int, *AccountGroup) error
+	UpdateAccount(int, *Account) error
 	GetAccounts() ([]*AccountGroup, error)
-	GetAccountID(int) (*AccountGroup, error)
+	GetAccountID(int) ([]*AccountGroup, error)
 	GetAccountPhone(int) (string, error)
 	CheckAccountNameExists(string) (bool, error)
 	CompareHashAndPW(int, []byte) error
 	ChangePassword(int, string) error
+	GetAccount(int) ([]*AccountGroup, error)
 }
 
 type PostgresStore struct {
@@ -108,56 +109,86 @@ func (s *PostgresStore) CreateAccount(acc *AccountGroup) error {
 		return err
 	}
 
-	fmt.Printf("New ID is: %d\n", newID)
+	//fmt.Printf("New ID is: %d\n", newID)
 	return nil
 
 }
 func (s *PostgresStore) DeleteAccount(id int) error {
-	_, err := s.db.Query("delete from users where user_id = $1", id)
-	return err
-}
-
-func (s *PostgresStore) UpdateAccount(id int, acc *AccountGroup) error {
-
-	if acc.Account.Password != "" {
-		password, err := bcryptPW(acc.Account.Password)
-		if err != nil {
-			return err
-		}
-		acc.Account.Password = string(password)
+	groupid, err := s.getAccountGroupID(id)
+	if err != nil {
+		return err
 	}
 
-	if acc.Account.PhoneNumber != "" {
-		encryptedPhone, err := EncryptPhoneNumber(acc.Account.PhoneNumber)
+	// 删除用户
+	_, err = s.db.Exec("DELETE FROM users WHERE user_id = $1", id)
+	if err != nil {
+		return err
+	}
+
+	// 删除用户ID
+	err = s.deleteGroupUserID(id, groupid)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) UpdateAccount(id int, acc *Account) error {
+
+	groupid, err := s.getAccountGroupID(id)
+	if err != nil {
+		return err
+	}
+	//删除group表中user_ids
+	err = s.deleteGroupUserID(id, groupid)
+	if err != nil {
+		return err
+	}
+
+	err = s.updateGroupUserIDS(id, acc.GroupID)
+	if err != nil {
+		return err
+	}
+
+	if acc.Password != "" {
+		password, err := bcryptPW(acc.Password)
 		if err != nil {
 			return err
 		}
-		acc.Account.PhoneNumber = encryptedPhone
+		acc.Password = string(password)
+	}
+
+	if acc.PhoneNumber != "" {
+		encryptedPhone, err := EncryptPhoneNumber(acc.PhoneNumber)
+		if err != nil {
+			return err
+		}
+		acc.PhoneNumber = encryptedPhone
 	}
 
 	query := `UPDATE users  
-              SET accountname = $1,  
-                  password = $2,  
-                  username = $3,  
-                  permission_id = $4,  
-                  phone_number = $5,  
-                  status = $6,
-				  groupid =$7  
-                  updated_at = $8 
-              WHERE user_id = $9`
+          SET accountname = $1,  
+              password = $2,  
+              username = $3,  
+              permission_id = $4,  
+              phone_number = $5,  
+              status = $6,
+              groupid = $7,
+              updated_at = $8 
+          WHERE user_id = $9`
 
-	_, err := s.db.Exec(query,
-		acc.Account.AccountName,
-		acc.Account.Password,
-		acc.Account.Username,
-		acc.Account.PermissionID,
-		acc.Account.PhoneNumber,
-		acc.Account.Status,
-		acc.Account.GroupID,
+	_, err = s.db.Exec(query,
+		acc.AccountName,
+		acc.Password,
+		acc.Username,
+		acc.PermissionID,
+		acc.PhoneNumber,
+		acc.Status,
+		acc.GroupID,
 		time.Now(),
 		id,
 	)
-	fmt.Println(id)
 	if err != nil {
 		return err
 	}
@@ -176,40 +207,128 @@ func (s *PostgresStore) getAccountGroupID(id int) (int, error) {
 
 }
 
-func (s *PostgresStore) getAllGroupUserIDs(groupid int) (string, error) {
-	query := `  
-		SELECT STRING_AGG(user_id::text, ',') AS user_ids_list  
-		FROM (  
-			SELECT unnest(user_ids) AS user_id  
-			FROM "group"  
-			WHERE id = $1 OR parent_id = $2  
-		) AS subquery;  
+// func (s *PostgresStore) getAllGroupUserIDs(groupid int) (string, error) {
+// 	query := `
+// 		SELECT STRING_AGG(user_id::text, ',') AS user_ids_list
+// 		FROM (
+// 			SELECT unnest(user_ids) AS user_id
+// 			FROM "group"
+// 			WHERE id = $1 OR parent_id = $2
+// 		) AS subquery;
+// 	`
+// 	rows, err := s.db.Query(query, groupid, groupid)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	defer rows.Close()
+
+// 	var combinedUserIDs []byte
+// 	if rows.Next() {
+// 		err := rows.Scan(&combinedUserIDs)
+// 		if err != nil {
+// 			return "", err
+// 		}
+// 	}
+
+// 	if len(combinedUserIDs) == 0 {
+// 		return "", fmt.Errorf("no user IDs found")
+// 	}
+
+// 	combinedUserIDs = bytes.TrimSpace(combinedUserIDs)
+// 	inClause := fmt.Sprintf("userid IN %s", combinedUserIDs)
+
+// 	return inClause, nil
+
+// }
+
+func (s *PostgresStore) getAllGroupUserIDs(groupid int) ([]int, error) {
+	query := `
+		SELECT STRING_AGG(user_id::text, ',') AS user_ids_list
+		FROM (
+			SELECT unnest(user_ids) AS user_id
+			FROM "group"
+			WHERE id = $1 OR parent_id = $2
+		) AS subquery;
 	`
 	rows, err := s.db.Query(query, groupid, groupid)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var combinedUserIDs []byte
+	var combinedUserIDs string
 	if rows.Next() {
 		err := rows.Scan(&combinedUserIDs)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
 	if len(combinedUserIDs) == 0 {
-		return "", fmt.Errorf("no user IDs found")
+		return nil, fmt.Errorf("no user IDs found")
 	}
 
-	combinedUserIDs = bytes.TrimSpace(combinedUserIDs)
-	inClause := fmt.Sprintf("userid IN %s", combinedUserIDs)
+	// Split the comma-separated string into an array of strings
+	userIDsStrArray := strings.Split(combinedUserIDs, ",")
 
-	return inClause, nil
+	// Convert each string to an integer
+	var userIDsInt []int
+	for _, idStr := range userIDsStrArray {
+		userID, err := strconv.Atoi(idStr)
+		if err != nil {
+			return nil, err
+		}
 
+		userIDsInt = append(userIDsInt, userID)
+	}
+
+	return userIDsInt, nil
 }
-func (s *PostgresStore) GetAccountID(id int) (*AccountGroup, error) {
+
+// func (s *PostgresStore) GetAccountID(id int) (*AccountGroup, error) {
+// 	permid, err := s.GetAccountPermissionID(id)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	groupid, err := s.getAccountGroupID(id)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	fmt.Println(permid)
+// 	alluserids, err := s.getAllGroupUserIDs(groupid)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	fmt.Println(alluserids)
+// 	var query string
+// 	var args []interface{}
+// 	// 超级管理员
+// 	if permid == 0 {
+// 		query = `SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id`
+// 	} else if permid == 1 {
+// 		query = `SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = ANY($1::integer[])`
+// 		var stringUserIDs []string
+// 		for _, id := range alluserids {
+// 			stringUserIDs = append(stringUserIDs, strconv.Itoa(id))
+// 		}
+// 		args = append(args, pq.Array(stringUserIDs))
+// 	} else if permid == 2 {
+// 		query = `SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = $1`
+// 		args = append(args, id)
+// 	} else {
+// 		return nil, fmt.Errorf("unknown permission ID: %d", permid)
+// 	}
+
+//		rows, err := s.db.Query(query, args...)
+//		if err != nil {
+//			return nil, err
+//		}
+//		for rows.Next() {
+//			return scanIntoAccount(rows)
+//		}
+//		return nil, fmt.Errorf("account id %d is not found ", id)
+//	}
+func (s *PostgresStore) GetAccountID(id int) ([]*AccountGroup, error) {
 	permid, err := s.GetAccountPermissionID(id)
 	if err != nil {
 		return nil, err
@@ -218,51 +337,28 @@ func (s *PostgresStore) GetAccountID(id int) (*AccountGroup, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(permid)
+	//fmt.Println(permid)
 	alluserids, err := s.getAllGroupUserIDs(groupid)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(alluserids)
+	//fmt.Println(alluserids)
 	var query string
 	var args []interface{}
 	// 超级管理员
 	if permid == 0 {
-		query = `SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id`
+		query = `SELECT users.user_id,users.accountname,users.username,users.permission_id,users.phone_number,users.status,users.groupid, "group".id,"group".name,"group".parent_id FROM users JOIN "group" ON users.groupid = "group".id`
 	} else if permid == 1 {
-		// 假设 alluserids 是一个逗号分隔的用户ID字符串，例如 "1,2,3,4,5"
-		// 使用 strings.Split 将字符串分割为 ID 切片
-		userIDs := strings.Split(alluserids, ",")
-
-		// 清理 userIDs 切片，去除空字符串和前后空格
-		var cleanedUserIDs []string
-		for _, userID := range userIDs {
-			userID = strings.TrimSpace(userID)
-			if userID != "" {
-				cleanedUserIDs = append(cleanedUserIDs, userID)
-			}
+		// 查询多条数据
+		query = `SELECT users.user_id,users.accountname,users.username,users.permission_id,users.phone_number,users.status,users.groupid, "group".id,"group".name,"group".parent_id FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = ANY($1::integer[])`
+		var stringUserIDs []string
+		for _, id := range alluserids {
+			stringUserIDs = append(stringUserIDs, strconv.Itoa(id))
 		}
-
-		// 如果没有有效的用户ID，返回错误
-		if len(cleanedUserIDs) == 0 {
-			return nil, fmt.Errorf("no valid user IDs found in alluserids")
-		}
-
-		// 构造 IN 子句的参数占位符和参数值列表
-		var paramPlaceholders []string
-		var paramValues []interface{}
-		for _, userID := range cleanedUserIDs {
-			// 为每个用户ID添加参数占位符
-			paramPlaceholders = append(paramPlaceholders, "$"+strconv.Itoa(len(paramValues)+1))
-			// 将用户ID作为参数值
-			args = append(args, userID)
-		}
-
-		// 构建查询字符串，使用参数占位符
-		query = fmt.Sprintf(`SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = ANY(%s)`, strings.Join(paramPlaceholders, ","))
-
+		args = append(args, pq.Array(stringUserIDs))
 	} else if permid == 2 {
-		query = `SELECT users.*, "group".* FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = $1`
+		// 查询一条数据
+		query = `SELECT users.user_id,users.accountname,users.username,users.permission_id,users.phone_number,users.status,users.groupid, "group".id,"group".name,"group".parent_id FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = $1`
 		args = append(args, id)
 	} else {
 		return nil, fmt.Errorf("unknown permission ID: %d", permid)
@@ -272,10 +368,82 @@ func (s *PostgresStore) GetAccountID(id int) (*AccountGroup, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
+	// 定义一个切片保存查询结果
+	var accounts []*AccountGroup
+
+	// 循环遍历结果集
 	for rows.Next() {
-		return scanIntoAccount(rows)
+		account := new(AccountGroup)
+		err := rows.Scan(
+			&account.Account.ID,
+			&account.Account.AccountName,
+			&account.Account.Username,
+			&account.Account.PermissionID,
+			&account.Account.PhoneNumber,
+			&account.Account.Status,
+			&account.Account.GroupID,
+			&account.Group.ID,
+			&account.Group.Name,
+			&account.Group.ParentID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		accounts = append(accounts, account)
 	}
-	return nil, fmt.Errorf("account id %d is not found ", id)
+
+	// 检查查询过程中是否出现错误
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 如果是 permid = 2 且没有查询到数据，返回错误
+	if permid == 2 && len(accounts) == 0 {
+		return nil, fmt.Errorf("account id %d is not found", id)
+	}
+
+	return accounts, nil
+}
+
+//取得单个id账户的信息
+
+func (s *PostgresStore) GetAccount(id int) ([]*AccountGroup, error) {
+
+	query := `SELECT users.user_id,users.accountname,users.username,users.permission_id,users.phone_number,users.status,users.groupid, "group".id,"group".name,"group".parent_id FROM users JOIN "group" ON users.groupid = "group".id WHERE users.user_id = $1`
+	rows, err := s.db.Query(query, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var accounts []*AccountGroup
+	for rows.Next() {
+		account := new(AccountGroup)
+		err := rows.Scan(
+			&account.Account.ID,
+			&account.Account.AccountName,
+			&account.Account.Username,
+			&account.Account.PermissionID,
+			&account.Account.PhoneNumber,
+			&account.Account.Status,
+			&account.Account.GroupID,
+			&account.Group.ID,
+			&account.Group.Name,
+			&account.Group.ParentID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, account)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return accounts, nil
 }
 
 // 取得账户下所有
@@ -542,21 +710,78 @@ func (s *PostgresStore) GetAccountPermissionID(id int) (int, error) {
 }
 
 func (s *PostgresStore) updateGroupUserIDS(id, groupid int) error {
-
-	newUserIDStr := fmt.Sprintf("%d", id)
+	// 查询当前 group 的 user_ids
 	var currentUserIDs []string
 	err := s.db.QueryRow("SELECT user_ids FROM \"group\" WHERE id = $1", groupid).Scan(pq.Array(&currentUserIDs))
 
 	if err != nil {
 		panic(err)
 	}
-	newUserIDs := append(currentUserIDs, newUserIDStr)
-	//userIDsStr := strings.Join(newUserIDs, ",")
-	//_, err = s.db.Exec("UPDATE \"group\" SET user_ids = ARRAY[:"+userIDsStr+"] WHERE id = ?", pq.Array(newUserIDs), groupid)
+
+	// 检查 id 是否已经存在于 user_ids 中
+	for _, existingID := range currentUserIDs {
+		if existingID == strconv.Itoa(id) {
+			// 如果 id 已存在，不执行更新
+			return nil
+		}
+	}
+
+	// 如果 id 不存在，将其添加到 user_ids 中
+	newUserIDs := append(currentUserIDs, strconv.Itoa(id))
+
+	// 执行数据库更新
 	_, err = s.db.Exec("UPDATE \"group\" SET user_ids = $1 WHERE id = $2", pq.Array(newUserIDs), groupid)
 	if err != nil {
 		panic(err)
 	}
-	return err
 
+	return nil
+}
+
+// func (s *PostgresStore) updateGroupUserIDS(id, groupid int) error {
+
+// 	newUserIDStr := fmt.Sprintf("%d", id)
+// 	var currentUserIDs []string
+// 	err := s.db.QueryRow("SELECT user_ids FROM \"group\" WHERE id = $1", groupid).Scan(pq.Array(&currentUserIDs))
+
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	newUserIDs := append(currentUserIDs, newUserIDStr)
+// 	//userIDsStr := strings.Join(newUserIDs, ",")
+// 	//_, err = s.db.Exec("UPDATE \"group\" SET user_ids = ARRAY[:"+userIDsStr+"] WHERE id = ?", pq.Array(newUserIDs), groupid)
+// 	_, err = s.db.Exec("UPDATE \"group\" SET user_ids = $1 WHERE id = $2", pq.Array(newUserIDs), groupid)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	return err
+
+// }
+
+func (s *PostgresStore) deleteGroupUserID(userID, groupID int) error {
+	// 获取当前用户ID数组
+	var currentUserIDs []string
+	err := s.db.QueryRow("SELECT user_ids FROM \"group\" WHERE id = $1", groupID).Scan(pq.Array(&currentUserIDs))
+	if err != nil {
+		return err
+	}
+
+	// 将要删除的用户ID转换为字符串
+	userIDStr := strconv.Itoa(userID)
+
+	// 从数组中移除要删除的用户ID
+	var newUserIDs []string
+	for _, id := range currentUserIDs {
+		if id != userIDStr {
+			newUserIDs = append(newUserIDs, id)
+		}
+	}
+
+	// 更新数据库中的用户ID数组
+	_, err = s.db.Exec("UPDATE \"group\" SET user_ids = $1 WHERE id = $2", pq.Array(newUserIDs), groupID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

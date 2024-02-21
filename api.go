@@ -31,6 +31,7 @@ func (s *APIServer) RUN() {
 
 	r.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
 	r.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleGetAccountByID))
+	r.HandleFunc("/users/{id}", makeHTTPHandleFunc(s.handleUsersID))
 	log.Println("JSON API server running port ", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, r)
 }
@@ -58,6 +59,22 @@ func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) err
 	}
 	return WriteJson(w, http.StatusOK, accounts)
 
+}
+
+func (s *APIServer) handleUsersID(w http.ResponseWriter, r *http.Request) error {
+	if r.Method == "GET" {
+		id, err := getID(r)
+		if err != nil {
+			return err
+		}
+		account, err := s.store.GetAccount(id)
+		if err != nil {
+			return err
+		}
+		return WriteJson(w, http.StatusOK, account)
+	}
+
+	return fmt.Errorf("method not allowed %s", r.Method)
 }
 
 // add grouping
@@ -105,10 +122,10 @@ func (s *APIServer) handleUpdateAccountPW(w http.ResponseWriter, r *http.Request
 
 }
 
-// add grouping stop
+// add group sunccess  end
 func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) error {
 
-	createAccountRes := new(AccountGroup)
+	createAccountRes := new(Account)
 	if err := json.NewDecoder(r.Body).Decode(&createAccountRes); err != nil {
 		return err
 	}
@@ -116,19 +133,19 @@ func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
-	err = s.store.CompareHashAndPW(id, []byte(createAccountRes.Account.Password))
+	err = s.store.CompareHashAndPW(id, []byte(createAccountRes.Password))
 	if err != nil {
 		return err
 	}
 
-	account := NewAccountGroup(
-		createAccountRes.Account.AccountName,
-		createAccountRes.Account.Password,
-		createAccountRes.Account.Username,
-		createAccountRes.Account.PermissionID,
-		createAccountRes.Account.PhoneNumber,
-		createAccountRes.Account.Status,
-		createAccountRes.Account.GroupID)
+	account := NewAccount(
+		createAccountRes.AccountName,
+		createAccountRes.Password,
+		createAccountRes.Username,
+		createAccountRes.PermissionID,
+		createAccountRes.PhoneNumber,
+		createAccountRes.Status,
+		createAccountRes.GroupID)
 	if err := s.store.UpdateAccount(id, account); err != nil {
 		return err
 	}
@@ -187,9 +204,9 @@ type ApiError struct {
 	Error string `json:"error"`
 }
 type ApiSuccess struct {
-	Success string `json:"success"`
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Success string      `json:"success"`
+	Code    int         `json:"code"`
+	Message interface{} `json:"message"`
 }
 
 func WriteJson(w http.ResponseWriter, status int, v any) error {
