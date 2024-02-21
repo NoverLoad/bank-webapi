@@ -49,6 +49,8 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 
 	return fmt.Errorf("method not allowed %s", r.Method)
 }
+
+// add group admin all account end
 func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
 	accounts, err := s.store.GetAccounts()
 	if err != nil {
@@ -57,6 +59,8 @@ func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) err
 	return WriteJson(w, http.StatusOK, accounts)
 
 }
+
+// add grouping
 func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request) error {
 	if r.Method == "GET" {
 		id, err := getID(r)
@@ -101,9 +105,10 @@ func (s *APIServer) handleUpdateAccountPW(w http.ResponseWriter, r *http.Request
 
 }
 
+// add grouping stop
 func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) error {
 
-	createAccountRes := new(Account)
+	createAccountRes := new(AccountGroup)
 	if err := json.NewDecoder(r.Body).Decode(&createAccountRes); err != nil {
 		return err
 	}
@@ -111,19 +116,19 @@ func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
-	err = s.store.CompareHashAndPW(id, []byte(createAccountRes.Password))
+	err = s.store.CompareHashAndPW(id, []byte(createAccountRes.Account.Password))
 	if err != nil {
 		return err
 	}
 
-	account := NewAccount(
-		createAccountRes.AccountName,
-		createAccountRes.Password,
-		createAccountRes.Username,
-		createAccountRes.PermissionID,
-		createAccountRes.PhoneNumber,
-		createAccountRes.Status,
-		createAccountRes.GroupID)
+	account := NewAccountGroup(
+		createAccountRes.Account.AccountName,
+		createAccountRes.Account.Password,
+		createAccountRes.Account.Username,
+		createAccountRes.Account.PermissionID,
+		createAccountRes.Account.PhoneNumber,
+		createAccountRes.Account.Status,
+		createAccountRes.Account.GroupID)
 	if err := s.store.UpdateAccount(id, account); err != nil {
 		return err
 	}
@@ -131,11 +136,13 @@ func (s *APIServer) handleUpdateAccount(w http.ResponseWriter, r *http.Request) 
 	return WriteJson(w, http.StatusOK, &account)
 }
 
+// add group create account end
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
 	createAccountRes := new(Account)
 	if err := json.NewDecoder(r.Body).Decode(&createAccountRes); err != nil {
 		return err
 	}
+	//fmt.Println(createAccountRes)
 	exists, err := s.store.CheckAccountNameExists(createAccountRes.AccountName)
 	if err != nil {
 		return err
@@ -144,7 +151,7 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		//417
 		return WriteJson(w, http.StatusExpectationFailed, ApiError{Error: "The account already exists. Please use a different account or reset your password"})
 	}
-	account := NewAccount(
+	account := NewAccountGroup(
 		createAccountRes.AccountName,
 		createAccountRes.Password,
 		createAccountRes.Username,
@@ -156,7 +163,7 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	return WriteJson(w, http.StatusOK, &account)
+	return WriteJson(w, http.StatusOK, ApiSuccess{Success: "success", Code: 0, Message: "create account success"})
 }
 func (s *APIServer) handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {
 	id, err := getID(r)
@@ -181,6 +188,8 @@ type ApiError struct {
 }
 type ApiSuccess struct {
 	Success string `json:"success"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 func WriteJson(w http.ResponseWriter, status int, v any) error {
